@@ -17,10 +17,17 @@ from watch_pods import Watcher
 from prometheus_client import start_http_server
 import metrics_graphite
 from prometheus_client import Gauge, Counter
+from flask import Flask
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+from prometheus_client import make_wsgi_app
+import ssl
 
 
 logger = alog.use_channel("trawler")
-
+app = Flask(__name__)
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+    '/metrics': make_wsgi_app()
+})
 
 class Trawler(object):
     """ The main trawling  """
@@ -52,8 +59,12 @@ class Trawler(object):
         self.logger = alog.use_channel("trawler")
         if self.config['prometheus']['enabled']:
             port = self.config['prometheus'].get('port')
-            logger.info('Starting prometheus http port at http://0.0.0.0:{}'.format(port))
-            start_http_server(port)
+            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            context.verify_mode = ssl.CERT_REQUIRED
+            context.load_verify_locations('./certs/ca.crt')
+            context.load_cert_chain('./certs/server.crt', './certs/server.key')
+            logger.info('Starting flask http port at http://0.0.0.0:{}'.format(port))
+            app.run('0.0.0.0', port, ssl_context=context)
         if self.config['graphite']['enabled']:
             self.graphite = metrics_graphite.instance(self.config['graphite'])
 
